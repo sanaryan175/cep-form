@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell, LineChart, Line, ResponsiveContainer } from 'recharts';
 import { getDashboardData, exportSurveysToExcel } from '../services/api';
-import { Users, TrendingUp, AlertTriangle, CheckCircle, Eye, Shield, LogOut, Download } from 'lucide-react';
+import { Users, TrendingUp, AlertTriangle, CheckCircle, LogOut, Download } from 'lucide-react';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
