@@ -107,17 +107,31 @@ router.post('/request-access', async (req, res) => {
     }
 
     const approvalToken = crypto.randomBytes(24).toString('hex');
-    await AccessRequest.create({
+    console.log('🔑 Generated approvalToken:', approvalToken);
+    
+    const newRequest = await AccessRequest.create({
       name,
       email,
       reason,
       approvalToken,
       status: 'pending'
     });
+    
+    console.log('✅ Stored request:', { 
+      id: newRequest._id, 
+      token: newRequest.approvalToken,
+      email: newRequest.email 
+    });
 
     const baseUrl = getAppBaseUrl();
     const approveUrl = `${baseUrl}/api/admin/decision/${approvalToken}?action=approve`;
     const denyUrl = `${baseUrl}/api/admin/decision/${approvalToken}?action=deny`;
+    
+    console.log('🔗 Generated URLs:', { 
+      baseUrl, 
+      approveUrl, 
+      denyUrl 
+    });
 
     const html = `
         <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
