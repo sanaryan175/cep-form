@@ -1,80 +1,71 @@
 const axios = require('axios');
+const sgMail = require('@sendgrid/mail');
 require('dotenv').config();
+
+if (process.env.SENDGRID_API_KEY) {
+  try {
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    console.log('SendGrid for OTP initialised');
+  } catch (err) {
+    console.error('Error initialising SendGrid for OTP:', err.message || err);
+  }
+} else {
+  console.log('SendGrid API key not set for OTP emails');
+}
 
 // Generate 6-digit OTP
 const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-// Send OTP email via Resend HTTP API
+// Send OTP email via SendGrid
 const sendOTPEmail = async (email, otp) => {
   try {
-    if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
-      throw new Error('Email service not configured. Please set RESEND_API_KEY and EMAIL_FROM.');
+    if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM_EMAIL) {
+      throw new Error('Email service not configured. Please set SENDGRID_API_KEY and SENDGRID_FROM_EMAIL.');
     }
 
     const html = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px; text-align: center; margin-bottom: 30px;">
-            <h1 style="color: white; margin: 0; font-size: 28px;">Financial Awareness Survey</h1>
-            <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">Email Verification</p>
-          </div>
-          
-          <div style="background: #f8f9fa; padding: 30px; border-radius: 10px; text-align: center;">
-            <h2 style="color: #333; margin-bottom: 20px;">Verify Your Email Address</h2>
-            <p style="color: #666; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
-              Thank you for starting the Financial Awareness Survey! To continue, please verify your email address using the OTP below:
-            </p>
-            
-            <div style="background: white; border: 2px dashed #667eea; padding: 20px; border-radius: 8px; margin: 20px 0;">
-              <p style="color: #666; margin: 0 0 10px 0; font-size: 14px;">Your Verification Code:</p>
-              <div style="font-size: 36px; font-weight: bold; color: #667eea; letter-spacing: 5px; margin: 10px 0;">
-                ${otp}
-              </div>
-            </div>
-            
-            <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin-top: 20px;">
-              <p style="color: #856404; margin: 0; font-size: 14px;">
-                <strong>⚠️ Important:</strong> This code will expire in 10 minutes for security reasons.
-              </p>
-            </div>
-          </div>
-          
-          <div style="text-align: center; margin-top: 30px; color: #999; font-size: 12px;">
-            <p>This is an automated message. Please do not reply to this email.</p>
-            <p>If you didn't request this verification, please ignore this email.</p>
-          </div>
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px; text-align: center; margin-bottom: 30px;">
+          <h1 style="color: white; margin: 0; font-size: 28px;">Financial Awareness Survey</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">Email Verification</p>
         </div>
-      `;
 
-    const payload = {
-      from: process.env.EMAIL_FROM,
+        <div style="background: white; border-radius: 12px; padding: 24px; box-shadow: 0 10px 25px rgba(15, 23, 42, 0.10); border: 1px solid #e5e7eb;">
+          <p style="margin: 0 0 12px 0; color: #374151; font-size: 15px;">Hi there,</p>
+          <p style="margin: 0 0 16px 0; color: #4b5563; font-size: 14px;">Use the verification code below to complete your survey:</p>
+
+          <div style="text-align: center; margin: 22px 0;">
+            <div style="display: inline-block; padding: 14px 26px; border-radius: 999px; background: rgba(79, 70, 229, 0.06); border: 1px solid rgba(79, 70, 229, 0.35);">
+              <span style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 24px; letter-spacing: 0.35em; font-weight: 700; color: #4f46e5;">${otp}</span>
+            </div>
+          </div>
+
+          <p style="margin: 0 0 8px 0; color: #4b5563; font-size: 13px;">This code will expire in <strong>10 minutes</strong>.</p>
+          <p style="margin: 0 0 16px 0; color: #6b7280; font-size: 12px;">If you didn't request this verification, you can safely ignore this email.</p>
+        </div>
+
+        <p style="margin: 16px 0 0 0; color: #9ca3af; font-size: 11px; text-align: center;">You're receiving this email because your address was used to verify access for the Financial Awareness Survey on PaySure.</p>
+      </div>
+    `;
+
+    const msg = {
       to: email,
-      subject: 'Financial Awareness Survey - Email Verification',
-      html
+      from: {
+        email: process.env.SENDGRID_FROM_EMAIL,
+        name: process.env.SENDGRID_FROM_NAME || 'Sanskriti',
+      },
+      subject: 'Your Financial Awareness Survey Verification Code',
+      html,
     };
 
-    const response = await axios.post('https://api.resend.com/emails', payload, {
-      headers: {
-        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    console.log(`✅ OTP sent to ${email} via Resend:`, response.data?.id || 'no-id');
-    return { success: true, id: response.data?.id };
+    console.log('📧 Sending OTP email via SendGrid to:', email);
+    const response = await sgMail.send(msg);
+    console.log('✅ OTP email sent via SendGrid, status:', response?.statusCode);
+    return { success: true };
   } catch (error) {
-    console.error('❌ Error sending email:', error);
-    const msg = error?.message || 'Failed to send verification email';
-    const isConfigError =
-      msg.includes('Email service not configured') ||
-      msg.includes('401') ||
-      msg.includes('403');
-
-    if (process.env.NODE_ENV === 'development' || isConfigError) {
-      throw new Error(msg);
-    }
-
+    console.error('❌ Error sending OTP email via SendGrid:', error?.response?.body || error.message || error);
     throw new Error('Failed to send verification email');
   }
 };
