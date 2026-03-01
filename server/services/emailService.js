@@ -7,6 +7,21 @@ const createTransporter = () => {
     host: 'smtp.gmail.com',
     port: 465,
     secure: true,
+    family: 4,
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    }
+  });
+};
+
+const createTransporterFallback = () => {
+  return nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false,
+    requireTLS: true,
+    family: 4,
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS
@@ -27,15 +42,6 @@ const sendOTPEmail = async (email, otp) => {
       throw new Error('Email credentials not configured. Please check .env file.');
     }
 
-    const transporter = createTransporter();
-
-    try {
-      await transporter.verify();
-    } catch (verifyError) {
-      console.error('❌ Email transporter verification failed:', verifyError);
-      throw new Error('Email service configuration failed. Please verify EMAIL_USER/EMAIL_PASS (app password) and try again.');
-    }
-    
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to: email,
@@ -74,6 +80,33 @@ const sendOTPEmail = async (email, otp) => {
         </div>
       `
     };
+
+    let transporter = createTransporter();
+
+    try {
+      await transporter.verify();
+    } catch (verifyError) {
+      console.error('❌ Email transporter verification failed:', verifyError);
+      const isNetworkError =
+        verifyError?.code === 'ENETUNREACH' ||
+        verifyError?.code === 'EAI_AGAIN' ||
+        verifyError?.code === 'ETIMEDOUT' ||
+        verifyError?.code === 'ECONNRESET';
+
+      if (isNetworkError) {
+        const fallbackTransporter = createTransporterFallback();
+        try {
+          await fallbackTransporter.verify();
+          transporter = fallbackTransporter;
+        } catch (fallbackErr) {
+          console.error('❌ Email transporter fallback verification failed:', fallbackErr);
+        }
+      }
+
+      if (transporter === null) {
+        throw new Error('Email service configuration failed. Please verify EMAIL_USER/EMAIL_PASS (app password) and try again.');
+      }
+    }
 
     const result = await transporter.sendMail(mailOptions);
     console.log(`✅ OTP sent to ${email}:`, result.messageId);

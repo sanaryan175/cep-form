@@ -1,9 +1,15 @@
 const express = require('express');
+const dns = require('dns');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
+
+// Prefer IPv4 on hosts where IPv6 egress can be unreliable (common on some PaaS)
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
 
 const surveyRoutes = require('./routes/survey');
 const analyticsRoutes = require('./routes/analytics');
