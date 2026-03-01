@@ -4,14 +4,12 @@ require('dotenv').config(); // Add this line
 // Create transporter with Gmail (you can change to any email service)
 const createTransporter = () => {
   return nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS
-    },
-    // Add these options for better reliability
-    tls: {
-      rejectUnauthorized: false
     }
   });
 };
@@ -82,9 +80,18 @@ const sendOTPEmail = async (email, otp) => {
     return { success: true, messageId: result.messageId };
   } catch (error) {
     console.error('❌ Error sending email:', error);
-    if (process.env.NODE_ENV === 'development') {
-      throw new Error(error?.message || 'Failed to send verification email');
+    const msg = error?.message || 'Failed to send verification email';
+    const isConfigError =
+      msg.includes('Email credentials not configured') ||
+      msg.includes('Email service configuration failed') ||
+      msg.includes('Invalid login') ||
+      msg.includes('Username and Password not accepted') ||
+      msg.includes('EAUTH');
+
+    if (process.env.NODE_ENV === 'development' || isConfigError) {
+      throw new Error(msg);
     }
+
     throw new Error('Failed to send verification email');
   }
 };
