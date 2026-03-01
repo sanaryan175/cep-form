@@ -2,15 +2,22 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const mongoose = require('mongoose');
+const sgMail = require('@sendgrid/mail');
 const AccessRequest = require('../models/AccessRequest');
 const AccessToken = require('../models/AccessToken');
 const { sendAdminAccessRequestEmail, sendOTPEmail } = require('../services/emailService');
 
-// Debug: Check if models are loaded
-console.log('🔍 Models loaded:', { 
-  AccessRequest: !!AccessRequest, 
-  AccessToken: !!AccessToken 
-});
+// Initialise SendGrid if API key is present
+if (process.env.SENDGRID_API_KEY) {
+  try {
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    console.log('SendGrid initialised');
+  } catch (err) {
+    console.error('Error initialising SendGrid:', err.message || err);
+  }
+} else {
+  console.log('SendGrid API key not set');
+}
 
 const sha256 = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 
@@ -183,8 +190,6 @@ router.get('/decision/:token', async (req, res) => {
     const { action } = req.query;
 
     console.log('Decision request - Token:', token, 'Action:', action);
-    console.log('Token length:', token.length);
-    console.log('Raw token:', JSON.stringify(token));
 
     if (!token || !action) {
       return res.status(400).send('Invalid request');
@@ -224,6 +229,12 @@ router.get('/decision/:token', async (req, res) => {
 
     console.log('Status updated to:', request.status);
 
+    // Use SendGrid to notify the requester
+    if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM_EMAIL) {
+      console.error('SendGrid not configured correctly; missing SENDGRID_API_KEY or SENDGRID_FROM_EMAIL');
+      return res.status(500).send('Email service not configured');
+    }
+
     if (request.status === 'approved') {
       const ttlMinutes = Number(process.env.ACCESS_TOKEN_TTL_MINUTES || 10);
       const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
@@ -235,49 +246,55 @@ router.get('/decision/:token', async (req, res) => {
       console.log('Access token created for:', request.email);
 
       const html = `
-          <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
-            <h2 style="margin: 0 0 12px 0;">Access Approved</h2>
-            <p style="margin: 0 0 16px 0; color: #444;">Your request to access the dashboard has been approved.</p>
-            <div style="border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; background: #f9fafb;">
-              <p style="margin: 0 0 8px 0;"><strong>Your Access Code:</strong></p>
-              <div style="font-size: 20px; font-weight: 700; letter-spacing: 1px;">${accessCode}</div>
-              <p style="margin: 10px 0 0 0; color: #6b7280; font-size: 12px;">Valid for ${ttlMinutes} minutes</p>
-            </div>
-            <p style="margin-top: 14px; color: #444;">Open the app → Dashboard → paste this code in the Admin Key field.</p>
+        <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
+          <h2 style="margin: 0 0 12px 0;">Access Approved</h2>
+          <p style="margin: 0 0 16px 0; color: #444;">Your request to access the dashboard has been approved.</p>
+          <div style="border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; background: #f9fafb;">
+            <p style="margin: 0 0 8px 0;"><strong>Your Access Code:</strong></p>
+            <div style="font-size: 20px; font-weight: 700; letter-spacing: 1px;">${accessCode}</div>
+            <p style="margin: 10px 0 0 0; color: #6b7280; font-size: 12px;">Valid for ${ttlMinutes} minutes (until ${expiresAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })})</p>
           </div>
-        `;
+          <p style="margin-top: 14px; color: #444;">Open the app → Dashboard → paste this code in the Admin Key field.</p>
+        </div>
+      `;
 
-      console.log('📧 Sending approval email to:', request.email);
-      await sendAdminAccessRequestEmail({
-        name: request.name,
-        email: request.email,
-        reason: '',
+      const msg = {
         to: request.email,
-        subject: `Dashboard Access Approved - Token: ${accessCode}`,
-        html
-      });
-      console.log('Approval email sent');
+        from: {
+          email: process.env.SENDGRID_FROM_EMAIL,
+          name: process.env.SENDGRID_FROM_NAME || 'Sanskriti',
+        },
+        subject: 'Dashboard Access Approved - Financial Awareness Survey',
+        html,
+      };
+
+      console.log('📧 Sending approval email via SendGrid to:', request.email);
+      await sgMail.send(msg);
+      console.log('✅ Approval email sent via SendGrid');
 
       return res.status(200).send('Approved. Access code sent to the requester.');
     }
 
     const denyHtml = `
-        <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
-          <h2 style="margin: 0 0 12px 0;">Access Request Update</h2>
-          <p style="margin: 0; color: #444;">Your request to access the dashboard was not approved at this time.</p>
-        </div>
-      `;
+      <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
+        <h2 style="margin: 0 0 12px 0;">Access Request Update</h2>
+        <p style="margin: 0; color: #444;">Your request to access the dashboard was not approved at this time.</p>
+      </div>
+    `;
 
-    console.log('Sending denial email to:', request.email);
-    await sendAdminAccessRequestEmail({
-      name: request.name,
-      email: request.email,
-      reason: '',
+    const denyMsg = {
       to: request.email,
+      from: {
+        email: process.env.SENDGRID_FROM_EMAIL,
+        name: process.env.SENDGRID_FROM_NAME || 'Sanskriti',
+      },
       subject: 'Dashboard Access Request Update - Financial Awareness Survey',
-      html: denyHtml
-    });
-    console.log('Denial email sent');
+      html: denyHtml,
+    };
+
+    console.log('📧 Sending denial email via SendGrid to:', request.email);
+    await sgMail.send(denyMsg);
+    console.log('✅ Denial email sent via SendGrid');
 
     return res.status(200).send('Disapproved. Requester notified via email.');
   } catch (error) {

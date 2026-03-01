@@ -112,6 +112,12 @@ const verifyOTP = (email, providedOTP) => {
 // Send admin access request email via Resend HTTP API
 const sendAdminAccessRequestEmail = async ({ name, email, reason, to, subject, html }) => {
   try {
+    console.log('🔧 Environment check:', {
+      RESEND_API_KEY: process.env.RESEND_API_KEY ? 'SET' : 'NOT SET',
+      EMAIL_FROM: process.env.EMAIL_FROM,
+      RESEND_API_KEY_LENGTH: process.env.RESEND_API_KEY?.length || 0
+    });
+
     if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
       throw new Error('Email service not configured. Please set RESEND_API_KEY and EMAIL_FROM.');
     }
