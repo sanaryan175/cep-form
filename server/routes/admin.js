@@ -183,6 +183,8 @@ router.get('/decision/:token', async (req, res) => {
     const { action } = req.query;
 
     console.log('Decision request - Token:', token, 'Action:', action);
+    console.log('Token length:', token.length);
+    console.log('Raw token:', JSON.stringify(token));
 
     if (!token || !action) {
       return res.status(400).send('Invalid request');
@@ -245,13 +247,13 @@ router.get('/decision/:token', async (req, res) => {
           </div>
         `;
 
-      console.log('Sending approval email to:', request.email);
+      console.log('📧 Sending approval email to:', request.email);
       await sendAdminAccessRequestEmail({
         name: request.name,
         email: request.email,
         reason: '',
         to: request.email,
-        subject: 'Dashboard Access Approved - Financial Awareness Survey',
+        subject: `Dashboard Access Approved - Token: ${accessCode}`,
         html
       });
       console.log('Approval email sent');
@@ -285,3 +287,14 @@ router.get('/decision/:token', async (req, res) => {
 });
 
 module.exports = router;
+
+// Debug endpoint - remove in production
+router.get('/debug-tokens', async (req, res) => {
+  try {
+    const requests = await AccessRequest.find({ status: 'pending' }).select('approvalToken email name status');
+    res.json({ requests });
+  } catch (error) {
+    console.error('Debug error:', error);
+    res.status(500).json({ error: 'Debug error' });
+  }
+});
