@@ -1,52 +1,19 @@
-const nodemailer = require('nodemailer');
-require('dotenv').config(); // Add this line
-
-// Create transporter with Gmail (you can change to any email service)
-const createTransporter = () => {
-  return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    family: 4,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    }
-  });
-};
-
-const createTransporterFallback = () => {
-  return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false,
-    requireTLS: true,
-    family: 4,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    }
-  });
-};
+const axios = require('axios');
+require('dotenv').config();
 
 // Generate 6-digit OTP
 const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-// Send OTP email
+// Send OTP email via Resend HTTP API
 const sendOTPEmail = async (email, otp) => {
   try {
-    // Check if email credentials are set
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-      throw new Error('Email credentials not configured. Please check .env file.');
+    if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+      throw new Error('Email service not configured. Please set RESEND_API_KEY and EMAIL_FROM.');
     }
 
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: 'Financial Awareness Survey - Email Verification',
-      html: `
+    const html = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px; text-align: center; margin-bottom: 30px;">
             <h1 style="color: white; margin: 0; font-size: 28px;">Financial Awareness Survey</h1>
@@ -78,48 +45,31 @@ const sendOTPEmail = async (email, otp) => {
             <p>If you didn't request this verification, please ignore this email.</p>
           </div>
         </div>
-      `
+      `;
+
+    const payload = {
+      from: process.env.EMAIL_FROM,
+      to: email,
+      subject: 'Financial Awareness Survey - Email Verification',
+      html
     };
 
-    let transporter = createTransporter();
-
-    try {
-      await transporter.verify();
-    } catch (verifyError) {
-      console.error('❌ Email transporter verification failed:', verifyError);
-      const isNetworkError =
-        verifyError?.code === 'ENETUNREACH' ||
-        verifyError?.code === 'EAI_AGAIN' ||
-        verifyError?.code === 'ETIMEDOUT' ||
-        verifyError?.code === 'ECONNRESET';
-
-      if (isNetworkError) {
-        const fallbackTransporter = createTransporterFallback();
-        try {
-          await fallbackTransporter.verify();
-          transporter = fallbackTransporter;
-        } catch (fallbackErr) {
-          console.error('❌ Email transporter fallback verification failed:', fallbackErr);
-        }
+    const response = await axios.post('https://api.resend.com/emails', payload, {
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json'
       }
+    });
 
-      if (transporter === null) {
-        throw new Error('Email service configuration failed. Please verify EMAIL_USER/EMAIL_PASS (app password) and try again.');
-      }
-    }
-
-    const result = await transporter.sendMail(mailOptions);
-    console.log(`✅ OTP sent to ${email}:`, result.messageId);
-    return { success: true, messageId: result.messageId };
+    console.log(`✅ OTP sent to ${email} via Resend:`, response.data?.id || 'no-id');
+    return { success: true, id: response.data?.id };
   } catch (error) {
     console.error('❌ Error sending email:', error);
     const msg = error?.message || 'Failed to send verification email';
     const isConfigError =
-      msg.includes('Email credentials not configured') ||
-      msg.includes('Email service configuration failed') ||
-      msg.includes('Invalid login') ||
-      msg.includes('Username and Password not accepted') ||
-      msg.includes('EAUTH');
+      msg.includes('Email service not configured') ||
+      msg.includes('401') ||
+      msg.includes('403');
 
     if (process.env.NODE_ENV === 'development' || isConfigError) {
       throw new Error(msg);
