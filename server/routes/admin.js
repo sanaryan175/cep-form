@@ -182,42 +182,37 @@ router.get('/decision/:token', async (req, res) => {
     const { token } = req.params;
     const { action } = req.query;
 
-    console.log('🔍 Decision request:', { token, action });
-    console.log('🔍 MongoDB connection state:', mongoose.connection.readyState);
+    console.log('Decision request - Token:', token, 'Action:', action);
 
     if (!token || !action) {
-      console.log('❌ Missing token or action');
       return res.status(400).send('Invalid request');
     }
 
+    // Check MongoDB connection
+    if (mongoose.connection.readyState !== 1) {
+      console.log('MongoDB not connected, state:', mongoose.connection.readyState);
+      return res.status(500).send('Database not connected');
+    }
+
     const request = await AccessRequest.findOne({ approvalToken: token });
-    console.log('🔍 DB query result:', request);
+    console.log('DB query result:', request ? 'Found' : 'Not found');
     
     if (!request) {
-      console.log('❌ Request not found for token:', token);
       return res.status(404).send('Request not found');
     }
 
-    console.log('📋 Found request:', { 
+    console.log('Request details:', { 
       id: request._id, 
-      status: request.status, 
-      email: request.email,
-      name: request.name 
+      email: request.email, 
+      status: request.status 
     });
 
-    if (!request.email) {
-      console.log('❌ Request has no email field');
-      return res.status(500).send('Invalid request data');
-    }
-
     if (request.status !== 'pending') {
-      console.log('⚠️ Request already processed:', request.status);
       return res.status(200).send(`Request already ${request.status}.`);
     }
 
     const normalized = String(action).toLowerCase();
     if (normalized !== 'approve' && normalized !== 'deny') {
-      console.log('❌ Invalid action:', action);
       return res.status(400).send('Invalid action');
     }
 
@@ -225,7 +220,7 @@ router.get('/decision/:token', async (req, res) => {
     request.decidedAt = new Date();
     await request.save();
 
-    console.log('✅ Status updated to:', request.status);
+    console.log('Status updated to:', request.status);
 
     if (request.status === 'approved') {
       const ttlMinutes = Number(process.env.ACCESS_TOKEN_TTL_MINUTES || 10);
@@ -235,7 +230,7 @@ router.get('/decision/:token', async (req, res) => {
       const tokenHash = sha256(accessCode);
       await AccessToken.create({ tokenHash, email: request.email, expiresAt });
 
-      console.log('🔑 Access token created for:', request.email);
+      console.log('Access token created for:', request.email);
 
       const html = `
           <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
@@ -244,13 +239,13 @@ router.get('/decision/:token', async (req, res) => {
             <div style="border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; background: #f9fafb;">
               <p style="margin: 0 0 8px 0;"><strong>Your Access Code:</strong></p>
               <div style="font-size: 20px; font-weight: 700; letter-spacing: 1px;">${accessCode}</div>
-              <p style="margin: 10px 0 0 0; color: #6b7280; font-size: 12px;">Valid for ${ttlMinutes} minutes (until ${expiresAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })})</p>
+              <p style="margin: 10px 0 0 0; color: #6b7280; font-size: 12px;">Valid for ${ttlMinutes} minutes</p>
             </div>
             <p style="margin-top: 14px; color: #444;">Open the app → Dashboard → paste this code in the Admin Key field.</p>
           </div>
         `;
 
-      console.log('📧 Sending approval email to:', request.email);
+      console.log('Sending approval email to:', request.email);
       await sendAdminAccessRequestEmail({
         name: request.name,
         email: request.email,
@@ -259,7 +254,7 @@ router.get('/decision/:token', async (req, res) => {
         subject: 'Dashboard Access Approved - Financial Awareness Survey',
         html
       });
-      console.log('✅ Approval email sent');
+      console.log('Approval email sent');
 
       return res.status(200).send('Approved. Access code sent to the requester.');
     }
@@ -271,7 +266,7 @@ router.get('/decision/:token', async (req, res) => {
         </div>
       `;
 
-    console.log('📧 Sending denial email to:', request.email);
+    console.log('Sending denial email to:', request.email);
     await sendAdminAccessRequestEmail({
       name: request.name,
       email: request.email,
@@ -280,7 +275,7 @@ router.get('/decision/:token', async (req, res) => {
       subject: 'Dashboard Access Request Update - Financial Awareness Survey',
       html: denyHtml
     });
-    console.log('✅ Denial email sent');
+    console.log('Denial email sent');
 
     return res.status(200).send('Disapproved. Requester notified via email.');
   } catch (error) {
