@@ -1,9 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const AccessRequest = require('../models/AccessRequest');
 const AccessToken = require('../models/AccessToken');
 const { sendAdminAccessRequestEmail, sendOTPEmail } = require('../services/emailService');
+
+// Debug: Check if models are loaded
+console.log('🔍 Models loaded:', { 
+  AccessRequest: !!AccessRequest, 
+  AccessToken: !!AccessToken 
+});
 
 const sha256 = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 
@@ -162,6 +169,7 @@ router.get('/decision/:token', async (req, res) => {
     const { action } = req.query;
 
     console.log('🔍 Decision request:', { token, action });
+    console.log('🔍 MongoDB connection state:', mongoose.connection.readyState);
 
     if (!token || !action) {
       console.log('❌ Missing token or action');
@@ -169,12 +177,24 @@ router.get('/decision/:token', async (req, res) => {
     }
 
     const request = await AccessRequest.findOne({ approvalToken: token });
+    console.log('🔍 DB query result:', request);
+    
     if (!request) {
       console.log('❌ Request not found for token:', token);
       return res.status(404).send('Request not found');
     }
 
-    console.log('📋 Found request:', { id: request._id, status: request.status, email: request.email });
+    console.log('📋 Found request:', { 
+      id: request._id, 
+      status: request.status, 
+      email: request.email,
+      name: request.name 
+    });
+
+    if (!request.email) {
+      console.log('❌ Request has no email field');
+      return res.status(500).send('Invalid request data');
+    }
 
     if (request.status !== 'pending') {
       console.log('⚠️ Request already processed:', request.status);
