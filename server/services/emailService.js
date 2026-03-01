@@ -131,6 +131,8 @@ const sendAdminAccessRequestEmail = async ({ name, email, reason, to, subject, h
       `
     };
 
+    console.log('🔍 Resend payload:', JSON.stringify(payload, null, 2));
+
     const response = await axios.post('https://api.resend.com/emails', payload, {
       headers: {
         Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
@@ -141,7 +143,10 @@ const sendAdminAccessRequestEmail = async ({ name, email, reason, to, subject, h
     console.log(`✅ Admin access request email sent via Resend:`, response.data?.id || 'no-id');
     return { success: true, id: response.data?.id };
   } catch (error) {
-    console.error('❌ Error sending admin access email:', error);
+    console.error('❌ Error sending admin access email:', error?.response?.data || error.message);
+    if (error?.response?.status) {
+      console.error('❌ Resend API status:', error.response.status);
+    }
     throw new Error('Failed to send admin access request email');
   }
 };
