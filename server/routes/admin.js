@@ -161,27 +161,37 @@ router.get('/decision/:token', async (req, res) => {
     const { token } = req.params;
     const { action } = req.query;
 
+    console.log('🔍 Decision request:', { token, action });
+
     if (!token || !action) {
+      console.log('❌ Missing token or action');
       return res.status(400).send('Invalid request');
     }
 
     const request = await AccessRequest.findOne({ approvalToken: token });
     if (!request) {
+      console.log('❌ Request not found for token:', token);
       return res.status(404).send('Request not found');
     }
 
+    console.log('📋 Found request:', { id: request._id, status: request.status, email: request.email });
+
     if (request.status !== 'pending') {
+      console.log('⚠️ Request already processed:', request.status);
       return res.status(200).send(`Request already ${request.status}.`);
     }
 
     const normalized = String(action).toLowerCase();
     if (normalized !== 'approve' && normalized !== 'deny') {
+      console.log('❌ Invalid action:', action);
       return res.status(400).send('Invalid action');
     }
 
     request.status = normalized === 'approve' ? 'approved' : 'denied';
     request.decidedAt = new Date();
     await request.save();
+
+    console.log('✅ Status updated to:', request.status);
 
     if (request.status === 'approved') {
       const ttlMinutes = Number(process.env.ACCESS_TOKEN_TTL_MINUTES || 10);
@@ -190,6 +200,8 @@ router.get('/decision/:token', async (req, res) => {
       const accessCode = crypto.randomBytes(9).toString('hex');
       const tokenHash = sha256(accessCode);
       await AccessToken.create({ tokenHash, email: request.email, expiresAt });
+
+      console.log('🔑 Access token created for:', request.email);
 
       const html = `
           <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
@@ -204,6 +216,7 @@ router.get('/decision/:token', async (req, res) => {
           </div>
         `;
 
+      console.log('📧 Sending approval email to:', request.email);
       await sendAdminAccessRequestEmail({
         name: request.name,
         email: request.email,
@@ -212,6 +225,7 @@ router.get('/decision/:token', async (req, res) => {
         subject: 'Dashboard Access Approved - Financial Awareness Survey',
         html
       });
+      console.log('✅ Approval email sent');
 
       return res.status(200).send('Approved. Access code sent to the requester.');
     }
@@ -223,6 +237,7 @@ router.get('/decision/:token', async (req, res) => {
         </div>
       `;
 
+    console.log('📧 Sending denial email to:', request.email);
     await sendAdminAccessRequestEmail({
       name: request.name,
       email: request.email,
@@ -231,6 +246,7 @@ router.get('/decision/:token', async (req, res) => {
       subject: 'Dashboard Access Request Update - Financial Awareness Survey',
       html: denyHtml
     });
+    console.log('✅ Denial email sent');
 
     return res.status(200).send('Disapproved. Requester notified via email.');
   } catch (error) {
