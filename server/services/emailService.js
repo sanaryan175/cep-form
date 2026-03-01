@@ -109,9 +109,47 @@ const verifyOTP = (email, providedOTP) => {
   return { valid: true, message: 'OTP verified successfully' };
 };
 
+// Send admin access request email via Resend HTTP API
+const sendAdminAccessRequestEmail = async ({ name, email, reason, to, subject, html }) => {
+  try {
+    if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+      throw new Error('Email service not configured. Please set RESEND_API_KEY and EMAIL_FROM.');
+    }
+
+    const payload = {
+      from: process.env.EMAIL_FROM,
+      to: to || process.env.ADMIN_NOTIFICATION_EMAIL || email,
+      subject: subject || 'PaySure Dashboard Access Request',
+      html: html || `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <h2>New Dashboard Access Request</h2>
+          <p><strong>Name:</strong> ${name}</p>
+          <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Reason:</strong></p>
+          <p>${reason}</p>
+        </div>
+      `
+    };
+
+    const response = await axios.post('https://api.resend.com/emails', payload, {
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    console.log(`✅ Admin access request email sent via Resend:`, response.data?.id || 'no-id');
+    return { success: true, id: response.data?.id };
+  } catch (error) {
+    console.error('❌ Error sending admin access email:', error);
+    throw new Error('Failed to send admin access request email');
+  }
+};
+
 module.exports = {
   sendOTPEmail,
   generateOTP,
   storeOTP,
-  verifyOTP
+  verifyOTP,
+  sendAdminAccessRequestEmail
 };

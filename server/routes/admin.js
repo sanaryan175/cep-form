@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 const AccessRequest = require('../models/AccessRequest');
 const AccessToken = require('../models/AccessToken');
+const { sendAdminAccessRequestEmail, sendOTPEmail } = require('../services/emailService');
 
 const sha256 = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 
@@ -11,19 +11,6 @@ const requestCounts = new Map();
 
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const RATE_LIMIT_MAX_REQUESTS = 3; // max 3 requests per window per email
-
-const createTransporter = () => {
-  return nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    },
-    tls: {
-      rejectUnauthorized: false
-    }
-  });
-};
 
 const getAllowedAdminKeys = () => {
   const keysRaw = process.env.ADMIN_KEYS || process.env.ADMIN_KEY;
@@ -34,7 +21,7 @@ const getAllowedAdminKeys = () => {
 };
 
 const getAdminRecipients = () => {
-  const recipientsRaw = process.env.ADMIN_EMAILS || process.env.EMAIL_USER;
+  const recipientsRaw = process.env.ADMIN_EMAILS || process.env.ADMIN_NOTIFICATION_EMAIL || process.env.EMAIL_USER;
   return (recipientsRaw || '')
     .split(',')
     .map(e => e.trim())
@@ -108,14 +95,7 @@ router.post('/request-access', async (req, res) => {
     if (recipients.length === 0) {
       return res.status(500).json({
         success: false,
-        message: 'ADMIN_EMAILS is not configured on the server'
-      });
-    }
-
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-      return res.status(500).json({
-        success: false,
-        message: 'Email service is not configured on the server'
+        message: 'ADMIN_EMAILS or ADMIN_NOTIFICATION_EMAIL is not configured on the server'
       });
     }
 
@@ -132,14 +112,7 @@ router.post('/request-access', async (req, res) => {
     const approveUrl = `${baseUrl}/api/admin/decision/${approvalToken}?action=approve`;
     const denyUrl = `${baseUrl}/api/admin/decision/${approvalToken}?action=deny`;
 
-    const transporter = createTransporter();
-    await transporter.verify();
-
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: recipients,
-      subject: 'Dashboard Access Request - Financial Awareness Survey',
-      html: `
+    const html = `
         <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
           <h2 style="margin: 0 0 12px 0;">Dashboard Access Request</h2>
           <p style="margin: 0 0 16px 0; color: #444;">A user requested access to the dashboard.</p>
@@ -154,12 +127,23 @@ router.post('/request-access', async (req, res) => {
             <a href="${denyUrl}" style="display:inline-block;background:#ef4444;color:white;text-decoration:none;padding:10px 14px;border-radius:8px;font-weight:600;">Disapprove</a>
           </div>
 
-          <p style="margin-top: 14px; color: #6b7280; font-size: 12px;">If the buttons don’t work, open these links:</p>
+          <p style="margin-top: 14px; color: #6b7280; font-size: 12px;">If the buttons don't work, open these links:</p>
           <p style="margin: 0; font-size: 12px;"><a href="${approveUrl}">${approveUrl}</a></p>
           <p style="margin: 0; font-size: 12px;"><a href="${denyUrl}">${denyUrl}</a></p>
         </div>
-      `
-    });
+      `;
+
+    // Send to each admin recipient using Resend
+    for (const recipient of recipients) {
+      await sendAdminAccessRequestEmail({
+        name,
+        email,
+        reason,
+        to: recipient,
+        subject: 'Dashboard Access Request - Financial Awareness Survey',
+        html
+      });
+    }
 
     return res.json({ success: true, message: 'Access request sent' });
   } catch (error) {
@@ -199,9 +183,6 @@ router.get('/decision/:token', async (req, res) => {
     request.decidedAt = new Date();
     await request.save();
 
-    const transporter = createTransporter();
-    await transporter.verify();
-
     if (request.status === 'approved') {
       const ttlMinutes = Number(process.env.ACCESS_TOKEN_TTL_MINUTES || 10);
       const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
@@ -210,11 +191,7 @@ router.get('/decision/:token', async (req, res) => {
       const tokenHash = sha256(accessCode);
       await AccessToken.create({ tokenHash, email: request.email, expiresAt });
 
-      await transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: request.email,
-        subject: 'Dashboard Access Approved - Financial Awareness Survey',
-        html: `
+      const html = `
           <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
             <h2 style="margin: 0 0 12px 0;">Access Approved</h2>
             <p style="margin: 0 0 16px 0; color: #444;">Your request to access the dashboard has been approved.</p>
@@ -225,22 +202,34 @@ router.get('/decision/:token', async (req, res) => {
             </div>
             <p style="margin-top: 14px; color: #444;">Open the app → Dashboard → paste this code in the Admin Key field.</p>
           </div>
-        `
+        `;
+
+      await sendAdminAccessRequestEmail({
+        name: request.name,
+        email: request.email,
+        reason: '',
+        to: request.email,
+        subject: 'Dashboard Access Approved - Financial Awareness Survey',
+        html
       });
 
       return res.status(200).send('Approved. Access code sent to the requester.');
     }
 
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: request.email,
-      subject: 'Dashboard Access Request Update - Financial Awareness Survey',
-      html: `
+    const denyHtml = `
         <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
           <h2 style="margin: 0 0 12px 0;">Access Request Update</h2>
           <p style="margin: 0; color: #444;">Your request to access the dashboard was not approved at this time.</p>
         </div>
-      `
+      `;
+
+    await sendAdminAccessRequestEmail({
+      name: request.name,
+      email: request.email,
+      reason: '',
+      to: request.email,
+      subject: 'Dashboard Access Request Update - Financial Awareness Survey',
+      html: denyHtml
     });
 
     return res.status(200).send('Disapproved. Requester notified via email.');
