@@ -88,12 +88,14 @@ const verifyOTP = async (email, providedOTP) => {
   const normalizedEmail = String(email).trim().toLowerCase();
   const provided = String(providedOTP).trim();
 
-  const stored = await EmailOTP.findOne({ email: normalizedEmail });
+  const stored = await EmailOTP.findOne({ email: normalizedEmail })
+    .select('otp expiresAt')
+    .lean();
   if (!stored) {
     return { valid: false, message: 'OTP not found or expired' };
   }
 
-  if (stored.expiresAt && stored.expiresAt.getTime() < Date.now()) {
+  if (stored.expiresAt && new Date(stored.expiresAt).getTime() < Date.now()) {
     await EmailOTP.deleteOne({ email: normalizedEmail });
     return { valid: false, message: 'OTP expired' };
   }
