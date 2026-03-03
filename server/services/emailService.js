@@ -1,5 +1,6 @@
 const axios = require('axios');
 const sgMail = require('@sendgrid/mail');
+const EmailOTP = require('../models/EmailOTP');
 require('dotenv').config();
 
 if (process.env.SENDGRID_API_KEY) {
@@ -70,33 +71,38 @@ const sendOTPEmail = async (email, otp) => {
   }
 };
 
-// Store OTPs temporarily (in production, use Redis or database)
-const otpStore = new Map();
+// Store OTP with expiry (MongoDB + TTL)
+const storeOTP = async (email, otp) => {
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-// Store OTP with expiry
-const storeOTP = (email, otp) => {
-  const expiry = Date.now() + (10 * 60 * 1000); // 10 minutes
-  otpStore.set(email, { otp, expiry });
+  await EmailOTP.findOneAndUpdate(
+    { email: normalizedEmail },
+    { $set: { otp: String(otp), expiresAt } },
+    { upsert: true, new: true }
+  );
 };
 
-// Verify OTP
-const verifyOTP = (email, providedOTP) => {
-  const storedData = otpStore.get(email);
-  
-  if (!storedData) {
+// Verify OTP (MongoDB)
+const verifyOTP = async (email, providedOTP) => {
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const provided = String(providedOTP).trim();
+
+  const stored = await EmailOTP.findOne({ email: normalizedEmail });
+  if (!stored) {
     return { valid: false, message: 'OTP not found or expired' };
   }
-  
-  if (Date.now() > storedData.expiry) {
-    otpStore.delete(email);
+
+  if (stored.expiresAt && stored.expiresAt.getTime() < Date.now()) {
+    await EmailOTP.deleteOne({ email: normalizedEmail });
     return { valid: false, message: 'OTP expired' };
   }
-  
-  if (storedData.otp !== providedOTP) {
+
+  if (String(stored.otp) !== provided) {
     return { valid: false, message: 'Invalid OTP' };
   }
-  
-  otpStore.delete(email);
+
+  await EmailOTP.deleteOne({ email: normalizedEmail });
   return { valid: true, message: 'OTP verified successfully' };
 };
 

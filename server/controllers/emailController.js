@@ -16,7 +16,7 @@ const sendVerificationEmail = async (req, res) => {
     const otp = generateOTP();
     
     // Store OTP
-    storeOTP(email, otp);
+    await storeOTP(email, otp);
     
     // Send email (async) - respond immediately to keep UI fast
     sendOTPEmail(email, otp).catch((error) => {
@@ -52,7 +52,7 @@ const verifyEmailCode = async (req, res) => {
       });
     }
 
-    const verification = verifyOTP(email, otp);
+    const verification = await verifyOTP(email, otp);
     
     if (!verification.valid) {
       return res.status(400).json({
