@@ -26,6 +26,8 @@ const sendOTPEmail = async (email, otp) => {
       throw new Error('Email service not configured. Please set SENDGRID_API_KEY and SENDGRID_FROM_EMAIL.');
     }
 
+    const startedAt = Date.now();
+
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px; text-align: center; margin-bottom: 30px;">
@@ -62,8 +64,16 @@ const sendOTPEmail = async (email, otp) => {
     };
 
     console.log('📧 Sending OTP email via SendGrid to:', email);
+    const sendStart = Date.now();
     const response = await sgMail.send(msg);
-    console.log('✅ OTP email sent via SendGrid, status:', response?.statusCode);
+    const sendMs = Date.now() - sendStart;
+    const totalMs = Date.now() - startedAt;
+    console.log('✅ OTP email sent via SendGrid:', {
+      email,
+      statusCode: response?.statusCode,
+      sendMs,
+      totalMs
+    });
     return { success: true };
   } catch (error) {
     console.error('❌ Error sending OTP email via SendGrid:', error?.response?.body || error.message || error);
@@ -76,11 +86,18 @@ const storeOTP = async (email, otp) => {
   const normalizedEmail = String(email).trim().toLowerCase();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
+  const startedAt = Date.now();
+
   await EmailOTP.findOneAndUpdate(
     { email: normalizedEmail },
     { $set: { otp: String(otp), expiresAt } },
     { upsert: true, new: true }
   );
+
+  console.log('OTP stored:', {
+    email: normalizedEmail,
+    ms: Date.now() - startedAt
+  });
 };
 
 // Verify OTP (MongoDB)
@@ -88,23 +105,57 @@ const verifyOTP = async (email, providedOTP) => {
   const normalizedEmail = String(email).trim().toLowerCase();
   const provided = String(providedOTP).trim();
 
+  const startedAt = Date.now();
+
+  const findStart = Date.now();
   const stored = await EmailOTP.findOne({ email: normalizedEmail })
     .select('otp expiresAt')
     .lean();
+  const findMs = Date.now() - findStart;
   if (!stored) {
+    console.log('OTP verify lookup:', {
+      email: normalizedEmail,
+      found: false,
+      findMs,
+      totalMs: Date.now() - startedAt
+    });
     return { valid: false, message: 'OTP not found or expired' };
   }
 
   if (stored.expiresAt && new Date(stored.expiresAt).getTime() < Date.now()) {
+    const delStart = Date.now();
     await EmailOTP.deleteOne({ email: normalizedEmail });
+    const deleteMs = Date.now() - delStart;
+    console.log('OTP verify result:', {
+      email: normalizedEmail,
+      result: 'expired',
+      findMs,
+      deleteMs,
+      totalMs: Date.now() - startedAt
+    });
     return { valid: false, message: 'OTP expired' };
   }
 
   if (String(stored.otp) !== provided) {
+    console.log('OTP verify result:', {
+      email: normalizedEmail,
+      result: 'invalid',
+      findMs,
+      totalMs: Date.now() - startedAt
+    });
     return { valid: false, message: 'Invalid OTP' };
   }
 
+  const delStart = Date.now();
   await EmailOTP.deleteOne({ email: normalizedEmail });
+  const deleteMs = Date.now() - delStart;
+  console.log('OTP verify result:', {
+    email: normalizedEmail,
+    result: 'valid',
+    findMs,
+    deleteMs,
+    totalMs: Date.now() - startedAt
+  });
   return { valid: true, message: 'OTP verified successfully' };
 };
 
