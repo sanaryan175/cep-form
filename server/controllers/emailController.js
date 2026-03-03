@@ -18,9 +18,14 @@ const sendVerificationEmail = async (req, res) => {
     // Store OTP
     storeOTP(email, otp);
     
-    // Send email
-    await sendOTPEmail(email, otp);
-    
+    // Send email (async) - respond immediately to keep UI fast
+    sendOTPEmail(email, otp).catch((error) => {
+      console.error('Async OTP send failed:', {
+        email,
+        message: error?.message || String(error)
+      });
+    });
+
     res.status(200).json({
       success: true,
       message: 'Verification code sent to your email'
