@@ -43,6 +43,7 @@ const SurveyForm = ({ setEmailVerified, emailVerified }) => {
   const [isVerifying, setIsVerifying] = useState(false);
   const [showVerification, setShowVerification] = useState(false);
   const [statusMessage, setStatusMessage] = useState(null);
+  const [resendCooldownSeconds, setResendCooldownSeconds] = useState(0);
 
   const clearStatusMessage = () => setStatusMessage(null);
 
@@ -98,6 +99,16 @@ const SurveyForm = ({ setEmailVerified, emailVerified }) => {
 
     return () => clearTimeout(timeoutId);
   }, [statusMessage]);
+
+  useEffect(() => {
+    if (resendCooldownSeconds <= 0) return;
+
+    const intervalId = setInterval(() => {
+      setResendCooldownSeconds((prev) => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => clearInterval(intervalId);
+  }, [resendCooldownSeconds]);
 
   // Debug: Monitor formData changes
   useEffect(() => {
@@ -290,10 +301,11 @@ const SurveyForm = ({ setEmailVerified, emailVerified }) => {
 
       setStatusMessage({
         type: 'success',
-        text: `Verification code sent to ${formData.email}. Please check your email and enter the code below.`
+        text: `Verification code sent to ${formData.email}. Please check your email (also check Spam/Promotions) and enter the code below.`
       });
       
       setShowVerification(true);
+      setResendCooldownSeconds(30);
     } catch (error) {
       setStatusMessage({ type: 'error', text: `Error sending verification email: ${error.message}` });
     } finally {
@@ -529,6 +541,9 @@ const SurveyForm = ({ setEmailVerified, emailVerified }) => {
             </div>
           ) : (
             <div className="space-y-4">
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                Email delivery can take up to 60 seconds. Please also check Spam/Promotions.
+              </div>
               <div>
                 <label className="form-label">Verification Code</label>
                 <input
@@ -548,6 +563,19 @@ const SurveyForm = ({ setEmailVerified, emailVerified }) => {
                 className="w-full btn-primary"
               >
                 {isVerifying ? 'Verifying...' : 'Verify Code'}
+              </button>
+
+              <button
+                type="button"
+                onClick={sendVerificationCode}
+                disabled={isSendingCode || resendCooldownSeconds > 0}
+                className="w-full btn-secondary"
+              >
+                {isSendingCode
+                  ? 'Sending...'
+                  : resendCooldownSeconds > 0
+                    ? `Resend Code (${resendCooldownSeconds}s)`
+                    : 'Resend Code'}
               </button>
               
               <button
