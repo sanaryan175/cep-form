@@ -356,7 +356,12 @@ const SurveyForm = ({ setEmailVerified, emailVerified }) => {
         console.log('After verification - email verified, moving to survey');
       }
     } catch (error) {
-      setStatusMessage({ type: 'error', text: `Error verifying email: ${error.message}` });
+      console.error('Verification error details:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Unknown error occurred';
+      setStatusMessage({ 
+        type: 'error', 
+        text: `Error verifying email: ${errorMessage}` 
+      });
     } finally {
       setIsVerifying(false);
     }
