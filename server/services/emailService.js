@@ -19,8 +19,10 @@ const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-// Send OTP email via SendGrid
-const sendOTPEmail = async (email, otp) => {
+// Send OTP email via SendGrid with retry logic for consistent delivery
+const sendOTPEmail = async (email, otp, retryCount = 0) => {
+  const maxRetries = 2;
+  
   try {
     if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM_EMAIL) {
       throw new Error('Email service not configured. Please set SENDGRID_API_KEY and SENDGRID_FROM_EMAIL.');
@@ -53,30 +55,70 @@ const sendOTPEmail = async (email, otp) => {
       </div>
     `;
 
+    // Rotate sender addresses to avoid throttling
+    const senderEmails = [
+      process.env.SENDGRID_FROM_EMAIL,
+      'noreply@cep-form.onrender.com',
+      'verify@cep-form.onrender.com'
+    ].filter(Boolean);
+    
+    const fromEmail = senderEmails[retryCount % senderEmails.length];
+
     const msg = {
       to: email,
       from: {
-        email: process.env.SENDGRID_FROM_EMAIL,
+        email: fromEmail,
         name: process.env.SENDGRID_FROM_NAME || 'Sanskriti',
       },
       subject: 'Your Financial Awareness Survey Verification Code',
       html,
+      // Add priority headers for better delivery
+      headers: {
+        'X-Priority': '1',
+        'X-MSMail-Priority': 'High',
+        'Importance': 'high'
+      }
     };
 
-    console.log('📧 Sending OTP email via SendGrid to:', email);
+    console.log(`📧 Sending OTP email via SendGrid (attempt ${retryCount + 1}):`, {
+      to: email,
+      from: fromEmail
+    });
+    
     const sendStart = Date.now();
     const response = await sgMail.send(msg);
     const sendMs = Date.now() - sendStart;
     const totalMs = Date.now() - startedAt;
+    
     console.log('✅ OTP email sent via SendGrid:', {
       email,
+      from: fromEmail,
+      attempt: retryCount + 1,
       statusCode: response?.statusCode,
       sendMs,
       totalMs
     });
-    return { success: true };
+    
+    return { success: true, attempt: retryCount + 1 };
+    
   } catch (error) {
-    console.error('❌ Error sending OTP email via SendGrid:', error?.response?.body || error.message || error);
+    console.error(`❌ SendGrid error (attempt ${retryCount + 1}):`, {
+      email,
+      error: error?.response?.body || error.message,
+      statusCode: error?.response?.statusCode
+    });
+    
+    // Retry on throttling or temporary errors
+    if (retryCount < maxRetries && (
+      error?.response?.statusCode === 429 || // Rate limited
+      error?.response?.statusCode >= 500 || // Server error
+      error?.code === 'ECONNRESET' // Connection error
+    )) {
+      console.log(`🔄 Retrying OTP send (${retryCount + 1}/${maxRetries}) after delay...`);
+      await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))); // Exponential backoff
+      return sendOTPEmail(email, otp, retryCount + 1);
+    }
+    
     throw new Error('Failed to send verification email');
   }
 };
