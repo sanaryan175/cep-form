@@ -55,14 +55,8 @@ const sendOTPEmail = async (email, otp, retryCount = 0) => {
       </div>
     `;
 
-    // Rotate sender addresses to avoid throttling
-    const senderEmails = [
-      process.env.SENDGRID_FROM_EMAIL,
-      'noreply@cep-form.onrender.com',
-      'verify@cep-form.onrender.com'
-    ].filter(Boolean);
-    
-    const fromEmail = senderEmails[retryCount % senderEmails.length];
+    // Always use the configured (and authenticated) sender
+    const fromEmail = process.env.SENDGRID_FROM_EMAIL;
 
     const msg = {
       to: email,
@@ -151,27 +145,47 @@ const verifyOTP = async (email, providedOTP) => {
   const startedAt = Date.now();
 
   // Use lean() and select only needed fields for faster query
-  const record = await EmailOTP.findOne({
-    email: normalizedEmail,
-    expiresAt: { $gt: new Date() }
-  })
-  .select('otp')
-  .lean();
+  const record = await EmailOTP.findOne({ email: normalizedEmail })
+    .select('otp expiresAt')
+    .lean();
 
-  const isValid = record && record.otp === provided;
-  
-  // Delete OTP after verification attempt (cleanup)
-  if (record) {
-    await EmailOTP.deleteOne({ email: normalizedEmail }).catch(() => {});
+  if (!record) {
+    console.log('OTP verified:', {
+      email: normalizedEmail,
+      result: 'not_found',
+      ms: Date.now() - startedAt
+    });
+    return { valid: false, message: 'OTP not found or expired' };
   }
 
-  console.log('OTP verified fast:', {
+  if (record.expiresAt && new Date(record.expiresAt).getTime() < Date.now()) {
+    await EmailOTP.deleteOne({ email: normalizedEmail }).catch(() => {});
+    console.log('OTP verified:', {
+      email: normalizedEmail,
+      result: 'expired',
+      ms: Date.now() - startedAt
+    });
+    return { valid: false, message: 'OTP expired' };
+  }
+
+  if (String(record.otp) !== provided) {
+    console.log('OTP verified:', {
+      email: normalizedEmail,
+      result: 'invalid',
+      ms: Date.now() - startedAt
+    });
+    // IMPORTANT: do NOT delete OTP on invalid attempt
+    return { valid: false, message: 'Invalid OTP' };
+  }
+
+  await EmailOTP.deleteOne({ email: normalizedEmail }).catch(() => {});
+  console.log('OTP verified:', {
     email: normalizedEmail,
-    isValid,
+    result: 'valid',
     ms: Date.now() - startedAt
   });
 
-  return isValid;
+  return { valid: true, message: 'OTP verified successfully' };
 };
 
 // Send admin access request email via Resend HTTP API

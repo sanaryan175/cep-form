@@ -66,7 +66,7 @@ const verifyEmailCode = async (req, res) => {
     }
 
     const verifyStart = Date.now();
-    const isValid = await verifyOTP(email, otp);
+    const verification = await verifyOTP(email, otp);
     const verifyMs = Date.now() - verifyStart;
     const totalMs = Date.now() - startedAt;
 
@@ -74,13 +74,13 @@ const verifyEmailCode = async (req, res) => {
       email,
       verifyMs,
       totalMs,
-      result: isValid ? 'valid' : 'invalid'
+      result: verification?.valid ? 'valid' : 'invalid'
     });
     
-    if (!isValid) {
+    if (!verification?.valid) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid or expired verification code'
+        message: verification?.message || 'Invalid or expired verification code'
       });
     }
     
