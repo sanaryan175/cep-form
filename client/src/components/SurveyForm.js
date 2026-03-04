@@ -301,7 +301,7 @@ const SurveyForm = ({ setEmailVerified, emailVerified }) => {
       // Optimistic UI update - show success immediately while email sends in background
       setStatusMessage({
         type: 'success',
-        text: `Sending verification code to ${formData.email}...`
+        text: `Verification code sent to ${formData.email}. Delivery usually takes 10-30 seconds, but can vary. Please check your email (including Spam/Promotions folders).`
       });
       
       // Send request without waiting for completion
@@ -317,13 +317,13 @@ const SurveyForm = ({ setEmailVerified, emailVerified }) => {
       setShowVerification(true);
       setResendCooldownSeconds(30);
       
-      // Update message after a short delay to simulate sending
+      // Update message after a short delay to show realistic expectations
       setTimeout(() => {
         setStatusMessage({
           type: 'success',
-          text: `Verification code sent to ${formData.email}. Please check your email (also check Spam/Promotions) and enter the code below.`
+          text: `Code sent! If it doesn't arrive within 30 seconds, please check Spam/Promotions folders or try resending.`
         });
-      }, 500);
+      }, 2000);
       
     } catch (error) {
       setStatusMessage({ type: 'error', text: `Error sending verification email: ${error.message}` });
