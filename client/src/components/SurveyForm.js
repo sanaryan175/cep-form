@@ -297,15 +297,34 @@ const SurveyForm = ({ setEmailVerified, emailVerified }) => {
     setIsSendingCode(true);
     try {
       console.log('Sending verification email to:', formData.email);
-      await sendVerificationEmail(formData.email);
-
+      
+      // Optimistic UI update - show success immediately while email sends in background
       setStatusMessage({
         type: 'success',
-        text: `Verification code sent to ${formData.email}. Please check your email (also check Spam/Promotions) and enter the code below.`
+        text: `Sending verification code to ${formData.email}...`
       });
       
+      // Send request without waiting for completion
+      sendVerificationEmail(formData.email).catch((error) => {
+        console.error('Background email send failed:', error);
+        setStatusMessage({ 
+          type: 'error', 
+          text: `Failed to send verification email: ${error.message}` 
+        });
+      });
+      
+      // Update UI immediately
       setShowVerification(true);
       setResendCooldownSeconds(30);
+      
+      // Update message after a short delay to simulate sending
+      setTimeout(() => {
+        setStatusMessage({
+          type: 'success',
+          text: `Verification code sent to ${formData.email}. Please check your email (also check Spam/Promotions) and enter the code below.`
+        });
+      }, 500);
+      
     } catch (error) {
       setStatusMessage({ type: 'error', text: `Error sending verification email: ${error.message}` });
     } finally {

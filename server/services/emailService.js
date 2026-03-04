@@ -81,82 +81,55 @@ const sendOTPEmail = async (email, otp) => {
   }
 };
 
-// Store OTP with expiry (MongoDB + TTL)
+// Store OTP with expiry (MongoDB + TTL) - Optimized
 const storeOTP = async (email, otp) => {
   const normalizedEmail = String(email).trim().toLowerCase();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
   const startedAt = Date.now();
 
+  // Use lean() for faster query and minimal fields
   await EmailOTP.findOneAndUpdate(
     { email: normalizedEmail },
     { $set: { otp: String(otp), expiresAt } },
-    { upsert: true, new: true }
+    { upsert: true, new: true, lean: true }
   );
 
-  console.log('OTP stored:', {
+  console.log('OTP stored fast:', {
     email: normalizedEmail,
     ms: Date.now() - startedAt
   });
 };
 
-// Verify OTP (MongoDB)
+// Verify OTP (MongoDB) - Optimized
 const verifyOTP = async (email, providedOTP) => {
   const normalizedEmail = String(email).trim().toLowerCase();
   const provided = String(providedOTP).trim();
 
   const startedAt = Date.now();
 
-  const findStart = Date.now();
-  const stored = await EmailOTP.findOne({ email: normalizedEmail })
-    .select('otp expiresAt')
-    .lean();
-  const findMs = Date.now() - findStart;
-  if (!stored) {
-    console.log('OTP verify lookup:', {
-      email: normalizedEmail,
-      found: false,
-      findMs,
-      totalMs: Date.now() - startedAt
-    });
-    return { valid: false, message: 'OTP not found or expired' };
-  }
-
-  if (stored.expiresAt && new Date(stored.expiresAt).getTime() < Date.now()) {
-    const delStart = Date.now();
-    await EmailOTP.deleteOne({ email: normalizedEmail });
-    const deleteMs = Date.now() - delStart;
-    console.log('OTP verify result:', {
-      email: normalizedEmail,
-      result: 'expired',
-      findMs,
-      deleteMs,
-      totalMs: Date.now() - startedAt
-    });
-    return { valid: false, message: 'OTP expired' };
-  }
-
-  if (String(stored.otp) !== provided) {
-    console.log('OTP verify result:', {
-      email: normalizedEmail,
-      result: 'invalid',
-      findMs,
-      totalMs: Date.now() - startedAt
-    });
-    return { valid: false, message: 'Invalid OTP' };
-  }
-
-  const delStart = Date.now();
-  await EmailOTP.deleteOne({ email: normalizedEmail });
-  const deleteMs = Date.now() - delStart;
-  console.log('OTP verify result:', {
+  // Use lean() and select only needed fields for faster query
+  const record = await EmailOTP.findOne({
     email: normalizedEmail,
-    result: 'valid',
-    findMs,
-    deleteMs,
-    totalMs: Date.now() - startedAt
+    expiresAt: { $gt: new Date() }
+  })
+  .select('otp')
+  .lean();
+
+  const isValid = record && record.otp === provided;
+  
+  // Delete OTP after verification attempt (cleanup)
+  if (record) {
+    await EmailOTP.deleteOne({ email: normalizedEmail }).catch(() => {});
+  }
+
+  console.log('OTP verified fast:', {
+    email: normalizedEmail,
+    isValid,
+    ms: Date.now() - startedAt
   });
-  return { valid: true, message: 'OTP verified successfully' };
+
+  return isValid;
 };
 
 // Send admin access request email via Resend HTTP API
