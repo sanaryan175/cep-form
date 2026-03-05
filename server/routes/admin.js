@@ -266,13 +266,23 @@ router.get('/decision/:token', async (req, res) => {
         },
         subject: 'Dashboard Access Approved - Financial Awareness Survey',
         html,
+        headers: {
+          'X-Priority': '1',
+          'X-MSMail-Priority': 'High',
+          'Importance': 'high'
+        }
       };
 
-      console.log('📧 Sending approval email via SendGrid to:', request.email);
-      await sgMail.send(msg);
-      console.log('✅ Approval email sent via SendGrid');
+      console.log('📧 Queueing approval email via SendGrid to:', request.email);
+      setImmediate(() => {
+        sgMail.send(msg)
+          .then(() => console.log('✅ Approval email sent via SendGrid'))
+          .catch((err) => {
+            console.error('❌ Approval email send failed:', err?.response?.body || err?.message || err);
+          });
+      });
 
-      return res.status(200).send('Approved. Access code sent to the requester.');
+      return res.status(200).send('Approved. Access code is being sent to the requester.');
     }
 
     const denyHtml = `
@@ -290,13 +300,23 @@ router.get('/decision/:token', async (req, res) => {
       },
       subject: 'Dashboard Access Request Update - Financial Awareness Survey',
       html: denyHtml,
+      headers: {
+        'X-Priority': '1',
+        'X-MSMail-Priority': 'High',
+        'Importance': 'high'
+      }
     };
 
-    console.log('📧 Sending denial email via SendGrid to:', request.email);
-    await sgMail.send(denyMsg);
-    console.log('✅ Denial email sent via SendGrid');
+    console.log('📧 Queueing denial email via SendGrid to:', request.email);
+    setImmediate(() => {
+      sgMail.send(denyMsg)
+        .then(() => console.log('✅ Denial email sent via SendGrid'))
+        .catch((err) => {
+          console.error('❌ Denial email send failed:', err?.response?.body || err?.message || err);
+        });
+    });
 
-    return res.status(200).send('Disapproved. Requester notified via email.');
+    return res.status(200).send('Disapproved. Requester is being notified via email.');
   } catch (error) {
     console.error('Decision error:', error);
     return res.status(500).send('Server error');
